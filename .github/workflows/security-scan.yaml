@@ -1,0 +1,63 @@
+name: IaC Security Scan
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:   
+
+permissions:
+  contents: read
+  security-events: write   
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Crear carpeta de reportes
+        run: mkdir -p reports/checkov reports/tfsec
+
+      # ── Checkov ──────────────────────────────
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform/aws
+          framework: terraform
+          output_format: sarif,json,cli
+          output_file_path: reports/checkov
+          soft_fail: true   # no bloquea todavia, primero queremos visibilidad
+
+      # ── tfsec ────────────────────────────────
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-sarif-action@v0.1.4
+        with:
+          working_directory: terraform/aws
+          sarif_file: reports/tfsec/tfsec.sarif
+
+      # ── Subir SARIF a la pestaña Security ───
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/checkov/results_sarif.sarif
+          category: checkov
+
+      - name: Upload tfsec SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/tfsec/tfsec.sarif
+          category: tfsec
+
+      # ── Conservar reportes como artefactos ──
+      - name: Archive security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-${{ github.run_number }}
+          path: reports/
+          retention-days: 90
