@@ -1,6 +1,5 @@
 resource "aws_db_instance" "default" {
 
-  name                   = var.dbname
   engine                 = "mysql"
   option_group_name      = aws_db_option_group.default.name
   parameter_group_name   = aws_db_parameter_group.default.name
@@ -37,7 +36,7 @@ resource "aws_db_instance" "default" {
 
   # Ignore password changes from tf plan diff
   lifecycle {
-    ignore_changes = ["password"]
+    ignore_changes = [password]
   }
 }
 
