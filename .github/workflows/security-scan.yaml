@@ -98,7 +98,29 @@ jobs:
              HIGH=$(grep -o '"HIGH"' reports/checkov/results_json.json | wc -l)
              MEDIUM=$(grep -o '"MEDIUM"' reports/checkov/results_json.json | wc -l)
              LOW=$(grep -o '"LOW"' reports/checkov/results_json.json | wc -l)
+             # ── Tfsec resumen ─────────────
 
+              TFSEC_TOTAL=$(jq '.results | length' reports/tfsec/tfsec.json)
+
+              TFSEC_CRITICAL=$(jq '
+              .results[] 
+              | select(.severity=="CRITICAL")
+              ' reports/tfsec/tfsec.json | wc -l)
+
+              TFSEC_HIGH=$(jq '
+              .results[] 
+              | select(.severity=="HIGH")
+              ' reports/tfsec/tfsec.json | wc -l)
+
+              TFSEC_MEDIUM=$(jq '
+              .results[] 
+              | select(.severity=="MEDIUM")
+              ' reports/tfsec/tfsec.json | wc -l)
+
+              TFSEC_LOW=$(jq '
+              .results[] 
+              | select(.severity=="LOW")
+              ' reports/tfsec/tfsec.json | wc -l)
              cat > site/index.html <<EOF
              <!DOCTYPE html>
              <html>
