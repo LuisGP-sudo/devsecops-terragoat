@@ -92,12 +92,12 @@ jobs:
             run: |
              mkdir site
 
-             TOTAL=$(grep -o '"severity"' reports/checkov/results_json.json | wc -l)
+             CRITICAL=$(jq '[.results.failed_checks[] | select(.severity=="CRITICAL")] | length' reports/checkov/results_json.json)
+             HIGH=$(jq '[.results.failed_checks[] | select(.severity=="HIGH")] | length' reports/checkov/results_json.json)
+             MEDIUM=$(jq '[.results.failed_checks[] | select(.severity=="MEDIUM")] | length' reports/checkov/results_json.json)
+             LOW=$(jq '[.results.failed_checks[] | select(.severity=="LOW")] | length' reports/checkov/results_json.json)
+             TOTAL=$(jq '.results.failed_checks | length' reports/checkov/results_json.json)
 
-             CRITICAL=$(grep -o '"CRITICAL"' reports/checkov/results_json.json | wc -l)
-             HIGH=$(grep -o '"HIGH"' reports/checkov/results_json.json | wc -l)
-             MEDIUM=$(grep -o '"MEDIUM"' reports/checkov/results_json.json | wc -l)
-             LOW=$(grep -o '"LOW"' reports/checkov/results_json.json | wc -l)
              # ── Tfsec resumen ─────────────
 
               TFSEC_TOTAL=$(jq '.results | length' reports/tfsec/tfsec.json)
