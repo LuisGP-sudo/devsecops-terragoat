@@ -287,6 +287,20 @@ resource "aws_s3_bucket" "flowbucket" {
   })
 }
 
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "bucket_encrypt" {
+  bucket = aws_s3_bucket.flowbucket.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.bucket_encryption_key.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+
+
 output "ec2_public_dns" {
   description = "Web Host Public DNS name"
   value       = aws_instance.web_host.public_dns
