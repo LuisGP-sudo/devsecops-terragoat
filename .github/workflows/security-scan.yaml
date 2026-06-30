@@ -45,14 +45,14 @@ jobs:
         run: |
          tfsec terraform/aws \
          --format sarif \
-         --out reports/tfsec/tfsec
+         --out reports/tfsec/tfsec.sarif
 
       - name: Run tfsec (JSON)
         continue-on-error: true
         run: |
          tfsec terraform/aws \
          --format json \
-         --out reports/tfsec/tfsec
+         --out reports/tfsec/tfsec.json
       # ── Subir SARIF a la pestaña Security ───
       - name: Upload Checkov SARIF
         if: always()
