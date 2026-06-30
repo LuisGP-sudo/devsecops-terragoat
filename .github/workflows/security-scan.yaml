@@ -92,11 +92,16 @@ jobs:
             run: |
              mkdir site
 
-             CRITICAL=$(jq '[.results.failed_checks[] | select(.severity=="CRITICAL")] | length' reports/checkov/results_json.json)
-             HIGH=$(jq '[.results.failed_checks[] | select(.severity=="HIGH")] | length' reports/checkov/results_json.json)
-             MEDIUM=$(jq '[.results.failed_checks[] | select(.severity=="MEDIUM")] | length' reports/checkov/results_json.json)
-             LOW=$(jq '[.results.failed_checks[] | select(.severity=="LOW")] | length' reports/checkov/results_json.json)
-             TOTAL=$(jq '.results.failed_checks | length' reports/checkov/results_json.json)
+             TOTAL=$(jq '[.results[]?.failed_checks[]?] | length' reports/checkov/results_json.json)
+             CRITICAL=$(jq '[.results[]?.failed_checks[]? | select(.severity=="CRITICAL")] | length' reports/checkov/results_json.json)
+             HIGH=$(jq '[.results[]?.failed_checks[]? | select(.severity=="HIGH")] | length' reports/checkov/results_json.json)
+             MEDIUM=$(jq '[.results[]?.failed_checks[]? | select(.severity=="MEDIUM")] | length' reports/checkov/results_json.json)
+             LOW=$(jq '[.results[]?.failed_checks[]? | select(.severity=="LOW")] | length' reports/checkov/results_json.json)
+             TOP_FINDINGS=$(jq -r '
+             .results[]
+             .failed_checks[]
+             | "\(.severity) - \(.check_id) - \(.check_name)"
+             ' reports/checkov/results_json.json | head -5)
 
              # ── Tfsec resumen ─────────────
 
@@ -179,7 +184,14 @@ jobs:
              </div>
 
              <p>Generated automatically by GitHub Actions.</p>
+             <div class="card">
+             <h2>Top Findings</h2>
 
+             <pre>
+             $TOP_FINDINGS
+             </pre>
+
+             </div>
              </body>
              </html>
              EOF
