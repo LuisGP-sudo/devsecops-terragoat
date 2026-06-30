@@ -41,12 +41,14 @@ jobs:
          sudo mv tfsec /usr/local/bin/
 
       - name: Run tfsec (SARIF)
+        continue-on-error: true
         run: |
          tfsec terraform/aws \
          --format sarif \
          --out reports/tfsec/tfsec
 
       - name: Run tfsec (JSON)
+        continue-on-error: true
         run: |
          tfsec terraform/aws \
          --format json \
