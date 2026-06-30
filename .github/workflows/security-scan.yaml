@@ -34,12 +34,23 @@ jobs:
           soft_fail: true   # no bloquea todavia, primero queremos visibilidad
 
       # ── tfsec ────────────────────────────────
-      - name: Run tfsec
-        uses: aquasecurity/tfsec-sarif-action@v0.1.4
-        with:
-          working_directory: terraform/aws
-          sarif_file: reports/tfsec/tfsec.sarif
+      - name: Install tfsec
+        run: |
+         curl -L https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64 -o tfsec
+         chmod +x tfsec
+         sudo mv tfsec /usr/local/bin/
 
+      - name: Run tfsec (SARIF)
+        run: |
+         tfsec terraform/aws \
+         --format sarif \
+         --out reports/tfsec/tfsec
+
+      - name: Run tfsec (JSON)
+        run: |
+         tfsec terraform/aws \
+         --format json \
+         --out reports/tfsec/tfsec
       # ── Subir SARIF a la pestaña Security ───
       - name: Upload Checkov SARIF
         if: always()
