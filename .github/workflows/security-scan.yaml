@@ -98,6 +98,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Download reports
         uses: actions/download-artifact@v4
         with:
@@ -119,28 +122,43 @@ jobs:
 
           CHECKOV_JSON=reports/checkov/results_json.json
           TFSEC_JSON=reports/tfsec/tfsec.json
+          SEVERITY_MAP=.github/security/checkov-severity-map.json
 
-          # ── Checkov: results.failed_checks es un ARRAY, no .results[] ──
-          TOTAL=$(jq '.results.failed_checks | length' "$CHECKOV_JSON")
-          CRITICAL=$(jq '[.results.failed_checks[] | select(.severity=="CRITICAL")] | length' "$CHECKOV_JSON")
-          HIGH=$(jq '[.results.failed_checks[] | select(.severity=="HIGH")] | length' "$CHECKOV_JSON")
-          MEDIUM=$(jq '[.results.failed_checks[] | select(.severity=="MEDIUM")] | length' "$CHECKOV_JSON")
-          LOW=$(jq '[.results.failed_checks[] | select(.severity=="LOW")] | length' "$CHECKOV_JSON")
+          # ── Enriquecer Checkov con nuestra propia matriz de severidad ──
+          # Checkov solo devuelve severity real si está integrado con
+          # Bridgecrew/Prisma Cloud (API key). Sin eso, .severity es null
+          # para el 100% de los findings. En vez de depender de esa API,
+          # cruzamos check_id contra checkov-severity-map.json (versionado
+          # en el repo, con criterio documentado por check).
+          # check_id sin entrada en el mapa cae en "UNKNOWN" en vez de
+          # fallar silenciosamente — así un check nuevo que Checkov agregue
+          # en el futuro no desaparece del conteo, solo queda sin clasificar
+          # hasta que lo agreguemos a la matriz.
+          jq --slurpfile map "$SEVERITY_MAP" '
+            ($map[0]) as $m
+            | .results.failed_checks
+            | map(. + {severity: ($m[.check_id].severity // "UNKNOWN")})
+          ' "$CHECKOV_JSON" > reports/checkov/enriched.json
 
-          # Nota: sin API key de Bridgecrew/Prisma, severity viene null en
-          # Checkov, así que CRITICAL/HIGH/MEDIUM/LOW pueden dar 0 aunque
-          # TOTAL sea > 0. Es esperado, no es un bug nuevo.
-          # Usamos limit() en vez de "| head -5": head cierra el pipe apenas
-          # lee sus 5 líneas, y si jq todavía tiene más output para escribir
-          # recibe EPIPE. Desde jq 1.6 eso se reporta como error explícito
-          # (exit code 2) en vez de morir en silencio por SIGPIPE, así que
-          # "jq | head" te revienta el step bajo el -e/-o pipefail que
-          # GitHub Actions ya activa por default en cada run:. limit()
-          # corta el resultado dentro del propio proceso jq, sin pipe.
+          UNKNOWN_COUNT=$(jq '[.[] | select(.severity=="UNKNOWN")] | length' reports/checkov/enriched.json)
+          if [ "$UNKNOWN_COUNT" -gt 0 ]; then
+            echo "⚠️  $UNKNOWN_COUNT findings de Checkov sin clasificar en la matriz de severidad. Revisar checkov-severity-map.json"
+            jq -r '[.[] | select(.severity=="UNKNOWN") | .check_id] | unique | .[]' reports/checkov/enriched.json
+          fi
+
+          TOTAL=$(jq 'length' reports/checkov/enriched.json)
+          CRITICAL=$(jq '[.[] | select(.severity=="CRITICAL")] | length' reports/checkov/enriched.json)
+          HIGH=$(jq '[.[] | select(.severity=="HIGH")] | length' reports/checkov/enriched.json)
+          MEDIUM=$(jq '[.[] | select(.severity=="MEDIUM")] | length' reports/checkov/enriched.json)
+          LOW=$(jq '[.[] | select(.severity=="LOW")] | length' reports/checkov/enriched.json)
+
+          # Top findings ordenado por severidad real, no por orden de archivo
           TOP_FINDINGS_CHECKOV=$(jq -r '
-            limit(5; .results.failed_checks[])
-            | "\(.severity // "N/A") - \(.check_id) - \(.check_name)"
-          ' "$CHECKOV_JSON")
+            def rank: {"CRITICAL":0,"HIGH":1,"MEDIUM":2,"LOW":3,"UNKNOWN":4}[.severity] // 5;
+            sort_by(rank)
+            | limit(5; .[])
+            | "\(.severity) - \(.check_id) - \(.check_name)"
+          ' reports/checkov/enriched.json)
 
           # ── tfsec: .results ya es un array plano, esto sí era correcto ──
           TFSEC_TOTAL=$(jq '.results | length' "$TFSEC_JSON")
@@ -149,9 +167,24 @@ jobs:
           TFSEC_MEDIUM=$(jq '[.results[] | select(.severity=="MEDIUM")] | length' "$TFSEC_JSON")
           TFSEC_LOW=$(jq '[.results[] | select(.severity=="LOW")] | length' "$TFSEC_JSON")
 
-          TOP_FINDINGS_TFSEC=$(jq -r '
-            limit(5; .results[])
-            | "\(.severity // "N/A") - \(.rule_id) - \(.description)"
+          # ── Top findings como filas de tabla (con badge de color) ──
+          # en vez de texto plano en un <pre>. El campo severity de Checkov
+          # ya viene garantizado (CRITICAL/HIGH/MEDIUM/LOW/UNKNOWN gracias
+          # al enriquecimiento de arriba), así que no necesita fallback acá.
+          TOP_FINDINGS_CHECKOV_HTML=$(jq -r '
+            def rank: {"CRITICAL":0,"HIGH":1,"MEDIUM":2,"LOW":3,"UNKNOWN":4}[.severity] // 5;
+            sort_by(rank) | limit(8; .[])
+            | "<tr><td><span class=\"badge badge-\(.severity|ascii_downcase)\">\(.severity)</span></td><td class=\"mono\">\(.check_id)</td><td>\(.check_name)</td></tr>"
+          ' reports/checkov/enriched.json)
+
+          # tfsec sí trae severity nativo, pero por las dudas cubrimos el
+          # caso null con $sev antes de hacer ascii_downcase (downcase de
+          # null tira error en jq, no un string vacío).
+          TOP_FINDINGS_TFSEC_HTML=$(jq -r '
+            def rank: {"CRITICAL":0,"HIGH":1,"MEDIUM":2,"LOW":3}[.severity] // 4;
+            .results | sort_by(rank) | limit(8; .[])
+            | (.severity // "N/A") as $sev
+            | "<tr><td><span class=\"badge badge-\($sev|ascii_downcase)\">\($sev)</span></td><td class=\"mono\">\(.rule_id)</td><td>\(.description)</td></tr>"
           ' "$TFSEC_JSON")
 
           # ── Totales combinados ──
@@ -161,53 +194,188 @@ jobs:
           COMBINED_MEDIUM=$((MEDIUM + TFSEC_MEDIUM))
           COMBINED_LOW=$((LOW + TFSEC_LOW))
 
+          # ── Score de riesgo estilo PingCastle ──
+          # Ponderación inspirada en el modelo de CVSS: cada CRITICAL pesa
+          # 5x más que un LOW. Cap en 100 porque el gauge es un semicírculo
+          # de 0 a 100, no un contador infinito - pasado cierto punto "más
+          # findings" ya no aporta información nueva sobre el nivel de riesgo,
+          # el mensaje "estás mal" ya quedó claro.
+          RAW_SCORE=$((COMBINED_CRITICAL*10 + COMBINED_HIGH*5 + COMBINED_MEDIUM*2 + COMBINED_LOW*1))
+          if [ "$RAW_SCORE" -gt 100 ]; then SCORE=100; else SCORE=$RAW_SCORE; fi
+
+          # Ángulo de la aguja: coincide con las bandas de color del gauge
+          # (ver comentario en el SVG más abajo sobre la convención de
+          # rotación). score=0 -> -90deg (izquierda), score=100 -> +90deg
+          # (derecha), score=50 -> 0deg (arriba).
+          ANGLE=$(awk -v s="$SCORE" 'BEGIN{printf "%.1f", (s/100*180)-90}')
+
+          if [ "$SCORE" -ge 75 ]; then
+            RISK_LABEL="CRÍTICO"; RISK_COLOR="#ef4444"
+          elif [ "$SCORE" -ge 50 ]; then
+            RISK_LABEL="ALTO"; RISK_COLOR="#f97316"
+          elif [ "$SCORE" -ge 25 ]; then
+            RISK_LABEL="MEDIO"; RISK_COLOR="#eab308"
+          else
+            RISK_LABEL="BAJO"; RISK_COLOR="#22c55e"
+          fi
+
           cat > site/index.html <<HTMLEOF
           <!DOCTYPE html>
-          <html>
+          <html lang="es">
           <head>
-            <title>Security Dashboard</title>
-            <style>
-              body{font-family:Arial;margin:40px;background:#f5f5f5;}
-              .card{display:inline-block;width:180px;margin:10px;padding:20px;background:white;border-radius:10px;box-shadow:0 0 8px #ddd;text-align:center;}
-              h1{color:#333;}
-              .section-title{margin-top:40px;}
-              pre{white-space:pre-wrap;text-align:left;}
-            </style>
+          <meta charset="UTF-8">
+          <title>Security Dashboard</title>
+          <style>
+            :root {
+              --critical: #ef4444;
+              --high: #f97316;
+              --medium: #eab308;
+              --low: #22c55e;
+              --checkov: #3b82f6;
+              --tfsec: #8b5cf6;
+              --bg: #0f172a;
+              --card-bg: #1e293b;
+              --text: #e2e8f0;
+              --text-dim: #94a3b8;
+            }
+            * { box-sizing: border-box; }
+            body {
+              font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+              margin: 0;
+              padding: 40px;
+              background: var(--bg);
+              color: var(--text);
+            }
+            h1 { margin: 0 0 4px 0; }
+            .run-info { color: var(--text-dim); margin-bottom: 32px; }
+            .section {
+              margin-top: 40px;
+              padding: 24px;
+              border-radius: 12px;
+              background: rgba(255,255,255,0.03);
+            }
+            .section-combined { border-left: 6px solid #fff; }
+            .section-checkov { border-left: 6px solid var(--checkov); }
+            .section-tfsec { border-left: 6px solid var(--tfsec); }
+            .section h2 { margin-top: 0; }
+            .cards { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
+            .card {
+              flex: 1 1 140px;
+              padding: 20px;
+              background: var(--card-bg);
+              border-radius: 10px;
+              text-align: center;
+              border-top: 4px solid transparent;
+            }
+            .card h3 { margin: 0 0 8px 0; font-size: 13px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.05em; }
+            .card .value { font-size: 32px; font-weight: 700; }
+            .card.critical { border-top-color: var(--critical); }
+            .card.high { border-top-color: var(--high); }
+            .card.medium { border-top-color: var(--medium); }
+            .card.low { border-top-color: var(--low); }
+
+            .gauge-wrap { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
+            .gauge-score { font-size: 48px; font-weight: 800; }
+            .gauge-label { font-size: 18px; font-weight: 700; letter-spacing: 0.05em; }
+
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 14px; }
+            th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 12px; }
+            td.mono { font-family: "SF Mono", Consolas, monospace; color: var(--text-dim); }
+
+            .badge {
+              display: inline-block;
+              padding: 3px 10px;
+              border-radius: 999px;
+              font-size: 11px;
+              font-weight: 700;
+              text-transform: uppercase;
+              color: #0f172a;
+            }
+            .badge-critical { background: var(--critical); color: #fff; }
+            .badge-high { background: var(--high); }
+            .badge-medium { background: var(--medium); }
+            .badge-low { background: var(--low); }
+            .badge-unknown, .badge-n\/a { background: #64748b; color: #fff; }
+
+            footer { margin-top: 40px; color: var(--text-dim); font-size: 13px; }
+          </style>
           </head>
           <body>
+
           <h1>Terraform Security Dashboard</h1>
-          <p>Run #${{ github.run_number }}</p>
+          <div class="run-info">Run #${{ github.run_number }} · $(date -u +"%Y-%m-%d %H:%M UTC")</div>
 
-          <h2 class="section-title">Totales combinados (Checkov + tfsec)</h2>
-          <div class="card"><h2>Total</h2><h1>$COMBINED_TOTAL</h1></div>
-          <div class="card"><h2>Critical</h2><h1>$COMBINED_CRITICAL</h1></div>
-          <div class="card"><h2>High</h2><h1>$COMBINED_HIGH</h1></div>
-          <div class="card"><h2>Medium</h2><h1>$COMBINED_MEDIUM</h1></div>
-          <div class="card"><h2>Low</h2><h1>$COMBINED_LOW</h1></div>
-
-          <h2 class="section-title">Checkov</h2>
-          <div class="card"><h2>Total</h2><h1>$TOTAL</h1></div>
-          <div class="card"><h2>Critical</h2><h1>$CRITICAL</h1></div>
-          <div class="card"><h2>High</h2><h1>$HIGH</h1></div>
-          <div class="card"><h2>Medium</h2><h1>$MEDIUM</h1></div>
-          <div class="card"><h2>Low</h2><h1>$LOW</h1></div>
-          <div class="card">
-            <h2>Top Findings</h2>
-            <pre>$TOP_FINDINGS_CHECKOV</pre>
+          <div class="section section-combined">
+            <h2>Nivel de riesgo general</h2>
+            <div class="gauge-wrap">
+              <svg width="300" height="170" viewBox="0 0 300 170">
+                <!-- Bandas de color precalculadas geométricamente (semicírculo,
+                     radio externo 130, interno 90, centro 150,150). Son fijas,
+                     no dependen de los datos - solo la aguja se mueve. -->
+                <path d="M 20.00 150.00 A 130 130 0 0 0 58.08 58.08 L 86.36 86.36 A 90 90 0 0 1 60.00 150.00 Z" fill="var(--low)"/>
+                <path d="M 58.08 58.08 A 130 130 0 0 0 150.00 20.00 L 150.00 60.00 A 90 90 0 0 1 86.36 86.36 Z" fill="var(--medium)"/>
+                <path d="M 150.00 20.00 A 130 130 0 0 0 241.92 58.08 L 213.64 86.36 A 90 90 0 0 1 150.00 60.00 Z" fill="var(--high)"/>
+                <path d="M 241.92 58.08 A 130 130 0 0 0 280.00 150.00 L 240.00 150.00 A 90 90 0 0 1 213.64 86.36 Z" fill="var(--critical)"/>
+                <!-- Aguja: línea vertical desde el centro, rotada según ANGLE.
+                     rotate() de SVG es horario en positivo; con ANGLE=-90 apunta
+                     a la izquierda (score 0), ANGLE=0 arriba (score 50), ANGLE=90
+                     a la derecha (score 100). Ver cálculo de ANGLE en el script. -->
+                <line x1="150" y1="150" x2="150" y2="40" stroke="#e2e8f0" stroke-width="4" stroke-linecap="round" transform="rotate($ANGLE 150 150)"/>
+                <circle cx="150" cy="150" r="10" fill="#e2e8f0"/>
+              </svg>
+              <div>
+                <div class="gauge-score" style="color: $RISK_COLOR">$SCORE</div>
+                <div class="gauge-label" style="color: $RISK_COLOR">$RISK_LABEL</div>
+                <div style="color: var(--text-dim); font-size: 13px; margin-top: 4px;">
+                  score = CRITICAL×10 + HIGH×5 + MEDIUM×2 + LOW×1 (cap 100)
+                </div>
+              </div>
+            </div>
+            <div class="cards">
+              <div class="card critical"><h3>Critical</h3><div class="value">$COMBINED_CRITICAL</div></div>
+              <div class="card high"><h3>High</h3><div class="value">$COMBINED_HIGH</div></div>
+              <div class="card medium"><h3>Medium</h3><div class="value">$COMBINED_MEDIUM</div></div>
+              <div class="card low"><h3>Low</h3><div class="value">$COMBINED_LOW</div></div>
+              <div class="card"><h3>Total</h3><div class="value">$COMBINED_TOTAL</div></div>
+            </div>
           </div>
 
-          <h2 class="section-title">tfsec</h2>
-          <div class="card"><h2>Total</h2><h1>$TFSEC_TOTAL</h1></div>
-          <div class="card"><h2>Critical</h2><h1>$TFSEC_CRITICAL</h1></div>
-          <div class="card"><h2>High</h2><h1>$TFSEC_HIGH</h1></div>
-          <div class="card"><h2>Medium</h2><h1>$TFSEC_MEDIUM</h1></div>
-          <div class="card"><h2>Low</h2><h1>$TFSEC_LOW</h1></div>
-          <div class="card">
-            <h2>Top Findings</h2>
-            <pre>$TOP_FINDINGS_TFSEC</pre>
+          <div class="section section-checkov">
+            <h2>Checkov <span style="color: var(--text-dim); font-weight: 400; font-size: 14px;">· severidad clasificada con matriz propia</span></h2>
+            <div class="cards">
+              <div class="card critical"><h3>Critical</h3><div class="value">$CRITICAL</div></div>
+              <div class="card high"><h3>High</h3><div class="value">$HIGH</div></div>
+              <div class="card medium"><h3>Medium</h3><div class="value">$MEDIUM</div></div>
+              <div class="card low"><h3>Low</h3><div class="value">$LOW</div></div>
+              <div class="card"><h3>Total</h3><div class="value">$TOTAL</div></div>
+            </div>
+            <table>
+              <thead><tr><th>Severidad</th><th>Check ID</th><th>Descripción</th></tr></thead>
+              <tbody>
+              $TOP_FINDINGS_CHECKOV_HTML
+              </tbody>
+            </table>
           </div>
 
-          <p>Generated automatically by GitHub Actions.</p>
+          <div class="section section-tfsec">
+            <h2>tfsec</h2>
+            <div class="cards">
+              <div class="card critical"><h3>Critical</h3><div class="value">$TFSEC_CRITICAL</div></div>
+              <div class="card high"><h3>High</h3><div class="value">$TFSEC_HIGH</div></div>
+              <div class="card medium"><h3>Medium</h3><div class="value">$TFSEC_MEDIUM</div></div>
+              <div class="card low"><h3>Low</h3><div class="value">$TFSEC_LOW</div></div>
+              <div class="card"><h3>Total</h3><div class="value">$TFSEC_TOTAL</div></div>
+            </div>
+            <table>
+              <thead><tr><th>Severidad</th><th>Rule ID</th><th>Descripción</th></tr></thead>
+              <tbody>
+              $TOP_FINDINGS_TFSEC_HTML
+              </tbody>
+            </table>
+          </div>
+
+          <footer>Generado automáticamente por GitHub Actions · Run #${{ github.run_number }}</footer>
           </body>
           </html>
           HTMLEOF
