@@ -131,9 +131,21 @@ jobs:
           # bajo -u.
 
           mkdir -p site
+          mkdir -p site/reports
 
           CHECKOV_JSON=reports/checkov/results_json.json
           TFSEC_JSON=reports/tfsec/tfsec.json
+
+          # Copiamos los reportes crudos a site/ para que GitHub Pages los
+          # sirva como archivos estáticos descargables. No los movemos, los
+          # copiamos - el original en reports/ sigue subiendo como artifact
+          # de 90 días vía upload-artifact en el job scan; esto es una copia
+          # adicional para acceso rápido desde el navegador sin pasar por
+          # la pestaña Actions.
+          cp "$CHECKOV_JSON" site/reports/checkov-results.json
+          cp reports/checkov/results_sarif.sarif site/reports/checkov-results.sarif
+          cp "$TFSEC_JSON" site/reports/tfsec-results.json
+          cp reports/tfsec/tfsec.sarif site/reports/tfsec-results.sarif
           SEVERITY_MAP=.github/security/checkov-severity-map.json
 
           # ── Enriquecer Checkov con nuestra propia matriz de severidad ──
@@ -334,20 +346,20 @@ jobs:
           <div class="run-info">Run #${{ github.run_number }} · $(date -u +"%Y-%m-%d %H:%M UTC")</div>
 
           <div class="section section-combined">
-            <h2>Nivel de riesgo general</h2>
+            <h2>Overall Risk Level</h2>
             <div class="gauge-wrap">
               <svg width="300" height="170" viewBox="0 0 300 170">
-                <!-- Bandas de color precalculadas geométricamente (semicírculo,
-                     radio externo 130, interno 90, centro 150,150). Son fijas,
-                     no dependen de los datos - solo la aguja se mueve. -->
+                <!-- Precomputed color bands (semicircle, outer radius 130,
+                     inner radius 90, center 150,150). These are static and
+                     do not depend on the data - only the needle moves. -->
                 <path d="M 20.00 150.00 A 130 130 0 0 0 58.08 58.08 L 86.36 86.36 A 90 90 0 0 1 60.00 150.00 Z" fill="var(--low)"/>
                 <path d="M 58.08 58.08 A 130 130 0 0 0 150.00 20.00 L 150.00 60.00 A 90 90 0 0 1 86.36 86.36 Z" fill="var(--medium)"/>
                 <path d="M 150.00 20.00 A 130 130 0 0 0 241.92 58.08 L 213.64 86.36 A 90 90 0 0 1 150.00 60.00 Z" fill="var(--high)"/>
                 <path d="M 241.92 58.08 A 130 130 0 0 0 280.00 150.00 L 240.00 150.00 A 90 90 0 0 1 213.64 86.36 Z" fill="var(--critical)"/>
-                <!-- Aguja: línea vertical desde el centro, rotada según ANGLE.
-                     rotate() de SVG es horario en positivo; con ANGLE=-90 apunta
-                     a la izquierda (score 0), ANGLE=0 arriba (score 50), ANGLE=90
-                     a la derecha (score 100). Ver cálculo de ANGLE en el script. -->
+                <!-- Needle: vertical line from center, rotated by ANGLE.
+                     SVG rotate() is clockwise for positive values; ANGLE=-90
+                     points left (score 0), ANGLE=0 points up (score 50),
+                     ANGLE=90 points right (score 100). See ANGLE calc above. -->
                 <line x1="150" y1="150" x2="150" y2="40" stroke="var(--text)" stroke-width="4" stroke-linecap="round" transform="rotate($ANGLE 150 150)"/>
                 <circle cx="150" cy="150" r="10" fill="var(--text)"/>
               </svg>
@@ -355,7 +367,7 @@ jobs:
                 <div class="gauge-score" style="color: $RISK_COLOR">$SCORE</div>
                 <div class="gauge-label" style="color: $RISK_COLOR">$RISK_LABEL</div>
                 <div style="color: var(--text-dim); font-size: 13px; margin-top: 4px;">
-                  score = CRITICAL×10 + HIGH×5 + MEDIUM×2 + LOW×1 (cap 100)
+                  score = CRITICAL×10 + HIGH×5 + MEDIUM×2 + LOW×1 (capped at 100)
                 </div>
               </div>
             </div>
@@ -371,7 +383,7 @@ jobs:
           <div class="section section-checkov">
             <div class="section-title-row">
               <span class="tool-pill checkov">CHECKOV</span>
-              <h2>Hallazgos de Checkov <span style="color: var(--text-dim); font-weight: 400; font-size: 14px;">· severidad clasificada con matriz propia</span></h2>
+              <h2>Checkov Findings <span style="color: var(--text-dim); font-weight: 400; font-size: 14px;">· severity classified with custom mapping</span></h2>
             </div>
             <div class="cards">
               <div class="card critical"><h3>Critical</h3><div class="value">$CRITICAL</div></div>
@@ -381,7 +393,7 @@ jobs:
               <div class="card"><h3>Total</h3><div class="value">$TOTAL</div></div>
             </div>
             <table>
-              <thead><tr><th>Severidad</th><th>Check ID</th><th>Descripción</th></tr></thead>
+              <thead><tr><th>Severity</th><th>Check ID</th><th>Description</th></tr></thead>
               <tbody>
               $TOP_FINDINGS_CHECKOV_HTML
               </tbody>
@@ -391,7 +403,7 @@ jobs:
           <div class="section section-tfsec">
             <div class="section-title-row">
               <span class="tool-pill tfsec">TFSEC</span>
-              <h2>Hallazgos de tfsec</h2>
+              <h2>tfsec Findings</h2>
             </div>
             <div class="cards">
               <div class="card critical"><h3>Critical</h3><div class="value">$TFSEC_CRITICAL</div></div>
@@ -401,14 +413,31 @@ jobs:
               <div class="card"><h3>Total</h3><div class="value">$TFSEC_TOTAL</div></div>
             </div>
             <table>
-              <thead><tr><th>Severidad</th><th>Rule ID</th><th>Descripción</th></tr></thead>
+              <thead><tr><th>Severity</th><th>Rule ID</th><th>Description</th></tr></thead>
               <tbody>
               $TOP_FINDINGS_TFSEC_HTML
               </tbody>
             </table>
           </div>
 
-          <footer>Generado automáticamente por GitHub Actions · Run #${{ github.run_number }}</footer>
+          <div class="section">
+            <h2>Downloads</h2>
+            <p style="color: var(--text-dim); font-size: 14px;">Full raw output for offline analysis or import into other tools.</p>
+            <div class="cards">
+              <div class="card" style="text-align:left; padding:16px;">
+                <h3 style="margin-bottom:10px;">Checkov</h3>
+                <p><a href="reports/checkov-results.json">JSON (full detail)</a></p>
+                <p><a href="reports/checkov-results.sarif">SARIF</a></p>
+              </div>
+              <div class="card" style="text-align:left; padding:16px;">
+                <h3 style="margin-bottom:10px;">tfsec</h3>
+                <p><a href="reports/tfsec-results.json">JSON (full detail)</a></p>
+                <p><a href="reports/tfsec-results.sarif">SARIF</a></p>
+              </div>
+            </div>
+          </div>
+
+          <footer>Automatically generated by GitHub Actions · Run #${{ github.run_number }}</footer>
           </body>
           </html>
           HTMLEOF
