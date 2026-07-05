@@ -94,6 +94,18 @@ jobs:
     name: Publish Security Dashboard
     needs: scan
     runs-on: ubuntu-latest
+    # Serializa los deployments a Pages: si dos ejecuciones del workflow
+    # llegan a este job casi al mismo tiempo (push + re-run manual, por
+    # ejemplo), la API de Pages solo acepta un deployment activo por
+    # entorno. Sin este bloque, el segundo choca contra el primero y
+    # falla con "Deployment failed, try again later." — que es exactamente
+    # el error que ya viste. cancel-in-progress: false hace que el segundo
+    # espere en cola en vez de cancelar el que ya está corriendo (así no
+    # perdés un deployment a mitad de camino). Este es el patrón oficial
+    # que recomienda GitHub en su propio template de Pages.
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -231,12 +243,13 @@ jobs:
               --high: #f97316;
               --medium: #eab308;
               --low: #22c55e;
-              --checkov: #3b82f6;
-              --tfsec: #8b5cf6;
-              --bg: #0f172a;
-              --card-bg: #1e293b;
-              --text: #e2e8f0;
-              --text-dim: #94a3b8;
+              --checkov: #2563eb;
+              --tfsec: #7c3aed;
+              --bg: #ffffff;
+              --card-bg: #f8fafc;
+              --text: #0f172a;
+              --text-dim: #64748b;
+              --border: #e2e8f0;
             }
             * { box-sizing: border-box; }
             body {
@@ -252,20 +265,34 @@ jobs:
               margin-top: 40px;
               padding: 24px;
               border-radius: 12px;
-              background: rgba(255,255,255,0.03);
+              background: var(--card-bg);
+              border: 1px solid var(--border);
             }
-            .section-combined { border-left: 6px solid #fff; }
+            .section-combined { border-left: 6px solid var(--text); }
             .section-checkov { border-left: 6px solid var(--checkov); }
             .section-tfsec { border-left: 6px solid var(--tfsec); }
-            .section h2 { margin-top: 0; }
+            .section-title-row { display: flex; align-items: center; gap: 12px; }
+            .section h2 { margin-top: 0; margin-bottom: 0; }
+            .tool-pill {
+              display: inline-block;
+              padding: 4px 14px;
+              border-radius: 999px;
+              font-size: 12px;
+              font-weight: 700;
+              letter-spacing: 0.05em;
+              color: #fff;
+            }
+            .tool-pill.checkov { background: var(--checkov); }
+            .tool-pill.tfsec { background: var(--tfsec); }
             .cards { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
             .card {
               flex: 1 1 140px;
               padding: 20px;
-              background: var(--card-bg);
+              background: #fff;
+              border: 1px solid var(--border);
               border-radius: 10px;
               text-align: center;
-              border-top: 4px solid transparent;
+              border-top: 4px solid var(--border);
             }
             .card h3 { margin: 0 0 8px 0; font-size: 13px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.05em; }
             .card .value { font-size: 32px; font-weight: 700; }
@@ -278,9 +305,9 @@ jobs:
             .gauge-score { font-size: 48px; font-weight: 800; }
             .gauge-label { font-size: 18px; font-weight: 700; letter-spacing: 0.05em; }
 
-            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-            th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 14px; }
-            th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; background: #fff; border-radius: 8px; overflow: hidden; }
+            th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
+            th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 12px; background: var(--card-bg); }
             td.mono { font-family: "SF Mono", Consolas, monospace; color: var(--text-dim); }
 
             .badge {
@@ -290,13 +317,13 @@ jobs:
               font-size: 11px;
               font-weight: 700;
               text-transform: uppercase;
-              color: #0f172a;
+              color: #fff;
             }
-            .badge-critical { background: var(--critical); color: #fff; }
+            .badge-critical { background: var(--critical); }
             .badge-high { background: var(--high); }
-            .badge-medium { background: var(--medium); }
+            .badge-medium { background: var(--medium); color: #1e1300; }
             .badge-low { background: var(--low); }
-            .badge-unknown, .badge-n\/a { background: #64748b; color: #fff; }
+            .badge-unknown, .badge-n\/a { background: #94a3b8; }
 
             footer { margin-top: 40px; color: var(--text-dim); font-size: 13px; }
           </style>
@@ -321,8 +348,8 @@ jobs:
                      rotate() de SVG es horario en positivo; con ANGLE=-90 apunta
                      a la izquierda (score 0), ANGLE=0 arriba (score 50), ANGLE=90
                      a la derecha (score 100). Ver cálculo de ANGLE en el script. -->
-                <line x1="150" y1="150" x2="150" y2="40" stroke="#e2e8f0" stroke-width="4" stroke-linecap="round" transform="rotate($ANGLE 150 150)"/>
-                <circle cx="150" cy="150" r="10" fill="#e2e8f0"/>
+                <line x1="150" y1="150" x2="150" y2="40" stroke="var(--text)" stroke-width="4" stroke-linecap="round" transform="rotate($ANGLE 150 150)"/>
+                <circle cx="150" cy="150" r="10" fill="var(--text)"/>
               </svg>
               <div>
                 <div class="gauge-score" style="color: $RISK_COLOR">$SCORE</div>
@@ -342,7 +369,10 @@ jobs:
           </div>
 
           <div class="section section-checkov">
-            <h2>Checkov <span style="color: var(--text-dim); font-weight: 400; font-size: 14px;">· severidad clasificada con matriz propia</span></h2>
+            <div class="section-title-row">
+              <span class="tool-pill checkov">CHECKOV</span>
+              <h2>Hallazgos de Checkov <span style="color: var(--text-dim); font-weight: 400; font-size: 14px;">· severidad clasificada con matriz propia</span></h2>
+            </div>
             <div class="cards">
               <div class="card critical"><h3>Critical</h3><div class="value">$CRITICAL</div></div>
               <div class="card high"><h3>High</h3><div class="value">$HIGH</div></div>
@@ -359,7 +389,10 @@ jobs:
           </div>
 
           <div class="section section-tfsec">
-            <h2>tfsec</h2>
+            <div class="section-title-row">
+              <span class="tool-pill tfsec">TFSEC</span>
+              <h2>Hallazgos de tfsec</h2>
+            </div>
             <div class="cards">
               <div class="card critical"><h3>Critical</h3><div class="value">$TFSEC_CRITICAL</div></div>
               <div class="card high"><h3>High</h3><div class="value">$TFSEC_HIGH</div></div>
