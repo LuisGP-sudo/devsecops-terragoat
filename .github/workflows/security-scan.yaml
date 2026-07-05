@@ -106,9 +106,14 @@ jobs:
 
       - name: Build dashboard
         run: |
-          set -uo pipefail
-          # (sin -e a propósito: preferimos que jq falle "suave" y caiga
-          # a valores por defecto vía // en vez de abortar el step entero)
+          set -u
+          # Nota: NO agrego -e ni -o pipefail acá porque GitHub Actions ya
+          # invoca este run: con `bash -e -o pipefail {0}` por default.
+          # Ya están activos aunque no los pongas. Lo que sí hace falta es
+          # asegurarse de que ningún jq quede en un pipe que pueda cerrarse
+          # antes de tiempo (ver limit() más abajo) y que las cuentas con //
+          # tengan fallback para que un severity null no tumbe el step
+          # bajo -u.
 
           mkdir -p site
 
@@ -125,10 +130,17 @@ jobs:
           # Nota: sin API key de Bridgecrew/Prisma, severity viene null en
           # Checkov, así que CRITICAL/HIGH/MEDIUM/LOW pueden dar 0 aunque
           # TOTAL sea > 0. Es esperado, no es un bug nuevo.
+          # Usamos limit() en vez de "| head -5": head cierra el pipe apenas
+          # lee sus 5 líneas, y si jq todavía tiene más output para escribir
+          # recibe EPIPE. Desde jq 1.6 eso se reporta como error explícito
+          # (exit code 2) en vez de morir en silencio por SIGPIPE, así que
+          # "jq | head" te revienta el step bajo el -e/-o pipefail que
+          # GitHub Actions ya activa por default en cada run:. limit()
+          # corta el resultado dentro del propio proceso jq, sin pipe.
           TOP_FINDINGS_CHECKOV=$(jq -r '
-            .results.failed_checks[]
+            limit(5; .results.failed_checks[])
             | "\(.severity // "N/A") - \(.check_id) - \(.check_name)"
-          ' "$CHECKOV_JSON" | head -5)
+          ' "$CHECKOV_JSON")
 
           # ── tfsec: .results ya es un array plano, esto sí era correcto ──
           TFSEC_TOTAL=$(jq '.results | length' "$TFSEC_JSON")
@@ -138,9 +150,9 @@ jobs:
           TFSEC_LOW=$(jq '[.results[] | select(.severity=="LOW")] | length' "$TFSEC_JSON")
 
           TOP_FINDINGS_TFSEC=$(jq -r '
-            .results[]
+            limit(5; .results[])
             | "\(.severity // "N/A") - \(.rule_id) - \(.description)"
-          ' "$TFSEC_JSON" | head -5)
+          ' "$TFSEC_JSON")
 
           # ── Totales combinados ──
           COMBINED_TOTAL=$((TOTAL + TFSEC_TOTAL))
