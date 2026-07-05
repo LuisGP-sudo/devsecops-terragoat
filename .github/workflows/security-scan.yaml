@@ -5,13 +5,13 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
-  workflow_dispatch:   
+  workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write
   pages: write
-  id-token: write  
+  id-token: write
 
 jobs:
   scan:
@@ -36,23 +36,36 @@ jobs:
       # ── tfsec ────────────────────────────────
       - name: Install tfsec
         run: |
-         curl -L https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64 -o tfsec
-         chmod +x tfsec
-         sudo mv tfsec /usr/local/bin/
+          curl -L https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64 -o tfsec
+          chmod +x tfsec
+          sudo mv tfsec /usr/local/bin/
 
       - name: Run tfsec (SARIF)
         continue-on-error: true
         run: |
-         tfsec terraform/aws \
-         --format sarif \
-         --out reports/tfsec/tfsec.sarif
+          tfsec terraform/aws \
+            --format sarif \
+            --out reports/tfsec/tfsec.sarif
 
       - name: Run tfsec (JSON)
         continue-on-error: true
         run: |
-         tfsec terraform/aws \
-         --format json \
-         --out reports/tfsec/tfsec.json
+          tfsec terraform/aws \
+            --format json \
+            --out reports/tfsec/tfsec.json
+
+      # ── Verificación defensiva de archivos ──
+      # Antes de asumir que existen, listamos. Si checkov-action o tfsec
+      # cambian su naming en una futura versión, esto te lo va a mostrar
+      # en el log en vez de dejarte con un dashboard vacío sin explicación.
+      - name: Verificar reportes generados
+        if: always()
+        run: |
+          echo "── reports/checkov ──"
+          ls -la reports/checkov || true
+          echo "── reports/tfsec ──"
+          ls -la reports/tfsec || true
+
       # ── Subir SARIF a la pestaña Security ───
       - name: Upload Checkov SARIF
         if: always()
@@ -78,132 +91,123 @@ jobs:
           retention-days: 90
 
   dashboard:
-        name: Publish Security Dashboard
-        needs: scan
-        runs-on: ubuntu-latest
-        steps:
-          - name: Download reports
-            uses: actions/download-artifact@v4
-            with:
-             name: security-reports-${{ github.run_number }}
-             path: reports
+    name: Publish Security Dashboard
+    needs: scan
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download reports
+        uses: actions/download-artifact@v4
+        with:
+          name: security-reports-${{ github.run_number }}
+          path: reports
 
-          - name: Build dashboard
-            run: |
-             mkdir site
+      - name: Build dashboard
+        run: |
+          set -uo pipefail
+          # (sin -e a propósito: preferimos que jq falle "suave" y caiga
+          # a valores por defecto vía // en vez de abortar el step entero)
 
-             TOTAL=$(jq '[.results[] | select(.check_result.result=="FAILED")] | length' reports/checkov/results_json.json)
-             CRITICAL=$(jq '[.results[] | select(.check_result.result=="FAILED" and .severity=="CRITICAL")] | length' reports/checkov/results_json.json)
-             HIGH=$(jq '[.results[] | select(.check_result.result=="FAILED" and .severity=="HIGH")] | length' reports/checkov/results_json.json)
-             MEDIUM=$(jq '[.results[] | select(.check_result.result=="FAILED" and .severity=="MEDIUM")] | length' reports/checkov/results_json.json)
-             LOW=$(jq '[.results[] | select(.check_result.result=="FAILED" and .severity=="LOW")] | length' reports/checkov/results_json.json)
-             TOP_FINDINGS=$(jq -r '
-             .results[]
-             .failed_checks[]
-             | "\(.severity) - \(.check_id) - \(.check_name)"
-             ' reports/checkov/results_json.json | head -5)
+          mkdir -p site
 
-             # ── Tfsec resumen ─────────────
+          CHECKOV_JSON=reports/checkov/results_json.json
+          TFSEC_JSON=reports/tfsec/tfsec.json
 
-              TFSEC_TOTAL=$(jq '.results | length' reports/tfsec/tfsec.json)
+          # ── Checkov: results.failed_checks es un ARRAY, no .results[] ──
+          TOTAL=$(jq '.results.failed_checks | length' "$CHECKOV_JSON")
+          CRITICAL=$(jq '[.results.failed_checks[] | select(.severity=="CRITICAL")] | length' "$CHECKOV_JSON")
+          HIGH=$(jq '[.results.failed_checks[] | select(.severity=="HIGH")] | length' "$CHECKOV_JSON")
+          MEDIUM=$(jq '[.results.failed_checks[] | select(.severity=="MEDIUM")] | length' "$CHECKOV_JSON")
+          LOW=$(jq '[.results.failed_checks[] | select(.severity=="LOW")] | length' "$CHECKOV_JSON")
 
-              TFSEC_CRITICAL=$(jq '
-              .results[] 
-              | select(.severity=="CRITICAL")
-              ' reports/tfsec/tfsec.json | wc -l)
+          # Nota: sin API key de Bridgecrew/Prisma, severity viene null en
+          # Checkov, así que CRITICAL/HIGH/MEDIUM/LOW pueden dar 0 aunque
+          # TOTAL sea > 0. Es esperado, no es un bug nuevo.
+          TOP_FINDINGS_CHECKOV=$(jq -r '
+            .results.failed_checks[]
+            | "\(.severity // "N/A") - \(.check_id) - \(.check_name)"
+          ' "$CHECKOV_JSON" | head -5)
 
-              TFSEC_HIGH=$(jq '
-              .results[] 
-              | select(.severity=="HIGH")
-              ' reports/tfsec/tfsec.json | wc -l)
+          # ── tfsec: .results ya es un array plano, esto sí era correcto ──
+          TFSEC_TOTAL=$(jq '.results | length' "$TFSEC_JSON")
+          TFSEC_CRITICAL=$(jq '[.results[] | select(.severity=="CRITICAL")] | length' "$TFSEC_JSON")
+          TFSEC_HIGH=$(jq '[.results[] | select(.severity=="HIGH")] | length' "$TFSEC_JSON")
+          TFSEC_MEDIUM=$(jq '[.results[] | select(.severity=="MEDIUM")] | length' "$TFSEC_JSON")
+          TFSEC_LOW=$(jq '[.results[] | select(.severity=="LOW")] | length' "$TFSEC_JSON")
 
-              TFSEC_MEDIUM=$(jq '
-              .results[] 
-              | select(.severity=="MEDIUM")
-              ' reports/tfsec/tfsec.json | wc -l)
+          TOP_FINDINGS_TFSEC=$(jq -r '
+            .results[]
+            | "\(.severity // "N/A") - \(.rule_id) - \(.description)"
+          ' "$TFSEC_JSON" | head -5)
 
-              TFSEC_LOW=$(jq '
-              .results[] 
-              | select(.severity=="LOW")
-              ' reports/tfsec/tfsec.json | wc -l)
-             cat > site/index.html <<EOF
-             <!DOCTYPE html>
-             <html>
-             <head>
-                <title>Security Dashboard</title>
-                <style>
-                body{
-                    font-family:Arial;
-                    margin:40px;
-                    background:#f5f5f5;
-                }
-                .card{
-                    display:inline-block;
-                    width:180px;
-                    margin:10px;
-                    padding:20px;
-                    background:white;
-                    border-radius:10px;
-                    box-shadow:0 0 8px #ddd;
-                    text-align:center;
-                }
-                h1{
-                    color:#333;
-                }
-                </style>
-             </head>
-             <body>
+          # ── Totales combinados ──
+          COMBINED_TOTAL=$((TOTAL + TFSEC_TOTAL))
+          COMBINED_CRITICAL=$((CRITICAL + TFSEC_CRITICAL))
+          COMBINED_HIGH=$((HIGH + TFSEC_HIGH))
+          COMBINED_MEDIUM=$((MEDIUM + TFSEC_MEDIUM))
+          COMBINED_LOW=$((LOW + TFSEC_LOW))
 
-             <h1>Terraform Security Dashboard</h1>
+          cat > site/index.html <<HTMLEOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Security Dashboard</title>
+            <style>
+              body{font-family:Arial;margin:40px;background:#f5f5f5;}
+              .card{display:inline-block;width:180px;margin:10px;padding:20px;background:white;border-radius:10px;box-shadow:0 0 8px #ddd;text-align:center;}
+              h1{color:#333;}
+              .section-title{margin-top:40px;}
+              pre{white-space:pre-wrap;text-align:left;}
+            </style>
+          </head>
+          <body>
+          <h1>Terraform Security Dashboard</h1>
+          <p>Run #${{ github.run_number }}</p>
 
-             <p>Run #${{ github.run_number }}</p>
+          <h2 class="section-title">Totales combinados (Checkov + tfsec)</h2>
+          <div class="card"><h2>Total</h2><h1>$COMBINED_TOTAL</h1></div>
+          <div class="card"><h2>Critical</h2><h1>$COMBINED_CRITICAL</h1></div>
+          <div class="card"><h2>High</h2><h1>$COMBINED_HIGH</h1></div>
+          <div class="card"><h2>Medium</h2><h1>$COMBINED_MEDIUM</h1></div>
+          <div class="card"><h2>Low</h2><h1>$COMBINED_LOW</h1></div>
 
-             <div class="card">
-             <h2>Total</h2>
-             <h1>$TOTAL</h1>
-             </div>
+          <h2 class="section-title">Checkov</h2>
+          <div class="card"><h2>Total</h2><h1>$TOTAL</h1></div>
+          <div class="card"><h2>Critical</h2><h1>$CRITICAL</h1></div>
+          <div class="card"><h2>High</h2><h1>$HIGH</h1></div>
+          <div class="card"><h2>Medium</h2><h1>$MEDIUM</h1></div>
+          <div class="card"><h2>Low</h2><h1>$LOW</h1></div>
+          <div class="card">
+            <h2>Top Findings</h2>
+            <pre>$TOP_FINDINGS_CHECKOV</pre>
+          </div>
 
-             <div class="card">
-             <h2>Critical</h2>
-             <h1>$CRITICAL</h1>
-             </div>
+          <h2 class="section-title">tfsec</h2>
+          <div class="card"><h2>Total</h2><h1>$TFSEC_TOTAL</h1></div>
+          <div class="card"><h2>Critical</h2><h1>$TFSEC_CRITICAL</h1></div>
+          <div class="card"><h2>High</h2><h1>$TFSEC_HIGH</h1></div>
+          <div class="card"><h2>Medium</h2><h1>$TFSEC_MEDIUM</h1></div>
+          <div class="card"><h2>Low</h2><h1>$TFSEC_LOW</h1></div>
+          <div class="card">
+            <h2>Top Findings</h2>
+            <pre>$TOP_FINDINGS_TFSEC</pre>
+          </div>
 
-             <div class="card">
-             <h2>High</h2>
-             <h1>$HIGH</h1>
-             </div>
+          <p>Generated automatically by GitHub Actions.</p>
+          </body>
+          </html>
+          HTMLEOF
 
-             <div class="card">
-             <h2>Medium</h2>
-             <h1>$MEDIUM</h1>
-             </div>
- 
-             <div class="card">
-             <h2>Low</h2>
-             <h1>$LOW</h1>
-             </div>
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
 
-             <p>Generated automatically by GitHub Actions.</p>
-             <div class="card">
-             <h2>Top Findings</h2>
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
 
-             <pre>
-             $TOP_FINDINGS
-             </pre>
-
-             </div>
-             </body>
-             </html>
-             EOF
-             
-          - name: Configure Pages
-            uses: actions/configure-pages@v5
-          - name: Upload Pages Artifact
-            uses: actions/upload-pages-artifact@v3
-            with:
-             path: site
-
-          - name: Deploy to GitHub Pages
-            uses: actions/deploy-pages@v4
-
-    
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
