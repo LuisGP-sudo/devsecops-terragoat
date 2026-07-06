@@ -4,7 +4,7 @@ locals {
   }
 }
 
-data aws_iam_policy_document "iam_policy_eks" {
+data "aws_iam_policy_document" "iam_policy_eks" {
   statement {
     effect  = "Allow"
     actions = ["sts:AssumeRole"]
@@ -15,8 +15,7 @@ data aws_iam_policy_document "iam_policy_eks" {
   }
 }
 
-
-resource aws_iam_role "iam_for_eks" {
+resource "aws_iam_role" "iam_for_eks" {
   name               = "${local.resource_prefix.value}-iam-for-eks"
   assume_role_policy = data.aws_iam_policy_document.iam_policy_eks.json
   tags = {
@@ -31,17 +30,23 @@ resource aws_iam_role "iam_for_eks" {
   }
 }
 
-resource aws_iam_role_policy_attachment "policy_attachment-AmazonEKSClusterPolicy" {
+resource "aws_iam_role_policy_attachment" "policy_attachment-AmazonEKSClusterPolicy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
   role       = aws_iam_role.iam_for_eks.name
 }
 
-resource aws_iam_role_policy_attachment "policy_attachment-AmazonEKSServicePolicy" {
+resource "aws_iam_role_policy_attachment" "policy_attachment-AmazonEKSServicePolicy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
   role       = aws_iam_role.iam_for_eks.name
 }
 
-resource aws_vpc "eks_vpc" {
+# KMS CMK dedicado para encriptar los Secrets de Kubernetes
+resource "aws_kms_key" "eks_secrets_key" {
+  description         = "CMK for EKS Kubernetes secrets encryption"
+  enable_key_rotation = true
+}
+
+resource "aws_vpc" "eks_vpc" {
   cidr_block           = "10.10.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
@@ -59,74 +64,92 @@ resource aws_vpc "eks_vpc" {
   })
 }
 
-resource aws_subnet "eks_subnet1" {
+# Subnets sin asignación automática de IP pública
+resource "aws_subnet" "eks_subnet1" {
   vpc_id                  = aws_vpc.eks_vpc.id
   cidr_block              = "10.10.10.0/24"
   availability_zone       = "${var.region}a"
-  map_public_ip_on_launch = true
+  map_public_ip_on_launch = false
   tags = merge({
-    Name                                            = "${local.resource_prefix.value}-eks-subnet"
+    Name                                             = "${local.resource_prefix.value}-eks-subnet"
     "kubernetes.io/cluster/${local.eks_name.value}" = "shared"
     }, {
-    git_commit                                       = "6e62522d2ab8f63740e53752b84a6e99cd65696a"
-    git_file                                         = "terraform/aws/eks.tf"
-    git_last_modified_at                             = "2021-05-02 11:16:31"
-    git_last_modified_by                             = "nimrodkor@gmail.com"
-    git_modifiers                                    = "nimrodkor"
-    git_org                                          = "bridgecrewio"
-    git_repo                                         = "terragoat"
-    "kubernetes.io/cluster/$${local.eks_name.value}" = "shared"
-    yor_trace                                        = "1fb4fa23-a5d6-4d6a-b7dc-88749383f48d"
-    }, {
-    "kubernetes.io/cluster/$$${local.eks_name.value}" = "shared"
-    "kubernetes.io/cluster/$${local.eks_name.value}"  = "shared"
-    }, {
-    "kubernetes.io/cluster/$$$${local.eks_name.value}" = "shared"
-    "kubernetes.io/cluster/$$${local.eks_name.value}"  = "shared"
-    "kubernetes.io/cluster/$${local.eks_name.value}"   = "shared"
+    git_commit            = "6e62522d2ab8f63740e53752b84a6e99cd65696a"
+    git_file              = "terraform/aws/eks.tf"
+    git_last_modified_at  = "2021-05-02 11:16:31"
+    git_last_modified_by  = "nimrodkor@gmail.com"
+    git_modifiers         = "nimrodkor"
+    git_org               = "bridgecrewio"
+    git_repo              = "terragoat"
+    yor_trace             = "1fb4fa23-a5d6-4d6a-b7dc-88749383f48d"
   })
 }
 
-resource aws_subnet "eks_subnet2" {
+resource "aws_subnet" "eks_subnet2" {
   vpc_id                  = aws_vpc.eks_vpc.id
   cidr_block              = "10.10.11.0/24"
   availability_zone       = "${var.region}b"
-  map_public_ip_on_launch = true
+  map_public_ip_on_launch = false
   tags = merge({
-    Name                                            = "${local.resource_prefix.value}-eks-subnet2"
+    Name                                             = "${local.resource_prefix.value}-eks-subnet2"
     "kubernetes.io/cluster/${local.eks_name.value}" = "shared"
     }, {
-    git_commit                                       = "6e62522d2ab8f63740e53752b84a6e99cd65696a"
-    git_file                                         = "terraform/aws/eks.tf"
-    git_last_modified_at                             = "2021-05-02 11:16:31"
-    git_last_modified_by                             = "nimrodkor@gmail.com"
-    git_modifiers                                    = "nimrodkor"
-    git_org                                          = "bridgecrewio"
-    git_repo                                         = "terragoat"
-    "kubernetes.io/cluster/$${local.eks_name.value}" = "shared"
-    yor_trace                                        = "9ce04af2-5321-4e6c-a262-e4d7c1f69525"
-    }, {
-    "kubernetes.io/cluster/$$${local.eks_name.value}" = "shared"
-    "kubernetes.io/cluster/$${local.eks_name.value}"  = "shared"
-    }, {
-    "kubernetes.io/cluster/$$$${local.eks_name.value}" = "shared"
-    "kubernetes.io/cluster/$$${local.eks_name.value}"  = "shared"
-    "kubernetes.io/cluster/$${local.eks_name.value}"   = "shared"
+    git_commit            = "6e62522d2ab8f63740e53752b84a6e99cd65696a"
+    git_file              = "terraform/aws/eks.tf"
+    git_last_modified_at  = "2021-05-02 11:16:31"
+    git_last_modified_by  = "nimrodkor@gmail.com"
+    git_modifiers         = "nimrodkor"
+    git_org               = "bridgecrewio"
+    git_repo              = "terragoat"
+    yor_trace             = "9ce04af2-5321-4e6c-a262-e4d7c1f69525"
   })
 }
 
-resource aws_eks_cluster "eks_cluster" {
+# Security group dedicado, en vez de dejar el default de la VPC
+resource "aws_security_group" "eks_cluster_sg" {
+  name        = "${local.resource_prefix.value}-eks-cluster-sg"
+  description = "Restrict EKS control plane traffic to VPC CIDR only"
+  vpc_id      = aws_vpc.eks_vpc.id
+
+  ingress {
+    description = "HTTPS from within the VPC only"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.eks_vpc.cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_eks_cluster" "eks_cluster" {
   name     = local.eks_name.value
-  role_arn = "${aws_iam_role.iam_for_eks.arn}"
+  role_arn = aws_iam_role.iam_for_eks.arn
 
   vpc_config {
     endpoint_private_access = true
-    subnet_ids              = ["${aws_subnet.eks_subnet1.id}", "${aws_subnet.eks_subnet2.id}"]
+    endpoint_public_access  = false
+    security_group_ids      = [aws_security_group.eks_cluster_sg.id]
+    subnet_ids              = [aws_subnet.eks_subnet1.id, aws_subnet.eks_subnet2.id]
   }
 
+  encryption_config {
+    provider {
+      key_arn = aws_kms_key.eks_secrets_key.arn
+    }
+    resources = ["secrets"]
+  }
+
+  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+
   depends_on = [
-    "aws_iam_role_policy_attachment.policy_attachment-AmazonEKSClusterPolicy",
-    "aws_iam_role_policy_attachment.policy_attachment-AmazonEKSServicePolicy",
+    aws_iam_role_policy_attachment.policy_attachment-AmazonEKSClusterPolicy,
+    aws_iam_role_policy_attachment.policy_attachment-AmazonEKSServicePolicy,
   ]
   tags = {
     git_commit           = "d68d2897add9bc2203a5ed0632a5cdd8ff8cefb0"
@@ -141,9 +164,10 @@ resource aws_eks_cluster "eks_cluster" {
 }
 
 output "endpoint" {
-  value = "${aws_eks_cluster.eks_cluster.endpoint}"
+  value = aws_eks_cluster.eks_cluster.endpoint
 }
 
 output "kubeconfig-certificate-authority-data" {
-  value = "${aws_eks_cluster.eks_cluster.certificate_authority.0.data}"
+  value     = aws_eks_cluster.eks_cluster.certificate_authority[0].data
+  sensitive = true
 }
