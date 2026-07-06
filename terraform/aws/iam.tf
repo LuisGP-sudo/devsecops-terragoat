@@ -15,56 +15,34 @@ resource "aws_iam_user" "user" {
     git_repo             = "terragoat"
     yor_trace            = "9b45b298-c1ea-426a-9644-610780021eaa"
   })
+
 }
 
 resource "aws_iam_access_key" "user" {
   user = aws_iam_user.user.name
 }
 
+resource "aws_iam_user_policy" "userpolicy" {
+  name = "excess_policy"
+  user = "${aws_iam_user.user.name}"
 
-resource "aws_iam_group" "app_group" {
-  name = "${local.resource_prefix.value}-app-group"
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "ec2:*",
+        "s3:*",
+        "lambda:*",
+        "cloudwatch:*"
+      ],
+      "Effect": "Allow",
+      "Resource": "*"
+    }
+  ]
 }
-
-resource "aws_iam_group_membership" "app_group_membership" {
-  name  = "${local.resource_prefix.value}-app-group-membership"
-  users = [aws_iam_user.user.name]
-  group = aws_iam_group.app_group.name
-}
-
-
-resource "aws_iam_group_policy" "scoped_policy" {
-  name  = "scoped_app_policy"
-  group = aws_iam_group.app_group.name
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "S3ScopedAccess"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          "arn:aws:s3:::${local.resource_prefix.value}-app-bucket",
-          "arn:aws:s3:::${local.resource_prefix.value}-app-bucket/*"
-        ]
-      },
-      {
-        Sid    = "CloudWatchLogsOnly"
-        Effect = "Allow"
-        Action = [
-          "cloudwatch:PutMetricData",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
+EOF
 }
 
 output "username" {
@@ -72,6 +50,6 @@ output "username" {
 }
 
 output "secret" {
-  value     = aws_iam_access_key.user.encrypted_secret
-  sensitive = true
+  value = aws_iam_access_key.user.encrypted_secret
 }
+
