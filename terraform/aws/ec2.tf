@@ -5,6 +5,9 @@ resource "aws_instance" "web_host" {
   vpc_security_group_ids = [aws_security_group.web-node.id]
   subnet_id               = aws_subnet.web_subnet.id
 
+  # Sin credenciales hardcodeadas. Los permisos de AWS que necesite la instancia
+  # se resuelven vía el IAM Instance Profile de abajo, nunca con access keys
+  # estáticas en user_data.
   user_data = <<EOF
 #! /bin/bash
 sudo apt-get update
@@ -14,8 +17,10 @@ sudo systemctl enable apache2
 echo "<h1>Deployed via Terraform</h1>" | sudo tee /var/www/html/index.html
 EOF
 
+  iam_instance_profile = aws_iam_instance_profile.web_host_profile.name
+
   metadata_options {
-    http_tokens   = "required" 
+    http_tokens   = "required" # fuerza IMDSv2, mitiga SSRF hacia el metadata service
     http_endpoint = "enabled"
   }
 
@@ -32,7 +37,6 @@ EOF
     yor_trace            = "347af3cd-4f70-4632-aca3-4d5e30ffc0b6"
   })
 }
-
 
 data "aws_iam_policy_document" "ec2_assume_role" {
   statement {
@@ -170,6 +174,13 @@ resource "aws_vpc" "web_vpc" {
     git_repo             = "terragoat"
     yor_trace            = "9bf2359b-952e-4570-9595-52eba4c20473"
   })
+}
+
+# Toma control explícito del Security Group default que AWS crea automáticamente
+# junto con la VPC. Sin ingress/egress declarados, Terraform vacía cualquier regla
+# permisiva que venga por default — nada puede caer en este SG por accidente.
+resource "aws_default_security_group" "web_vpc_default" {
+  vpc_id = aws_vpc.web_vpc.id
 }
 
 resource "aws_subnet" "web_subnet" {
