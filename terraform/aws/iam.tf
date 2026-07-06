@@ -21,7 +21,7 @@ resource "aws_iam_access_key" "user" {
   user = aws_iam_user.user.name
 }
 
-# Grupo dedicado en lugar de policy directa sobre el usuario
+
 resource "aws_iam_group" "app_group" {
   name = "${local.resource_prefix.value}-app-group"
 }
@@ -32,8 +32,7 @@ resource "aws_iam_group_membership" "app_group_membership" {
   group = aws_iam_group.app_group.name
 }
 
-# Policy con permisos acotados: solo lo que la app realmente necesita,
-# sobre recursos específicos (ajustar ARNs reales del proyecto)
+
 resource "aws_iam_group_policy" "scoped_policy" {
   name  = "scoped_app_policy"
   group = aws_iam_group.app_group.name

@@ -28,8 +28,6 @@ EOF
   }
 }
 
-# Política mínima necesaria para que el Lambda opere sin credenciales estáticas.
-# Ajustar las Actions/Resources reales según lo que analysis_lambda necesite hacer.
 resource "aws_iam_role_policy" "lambda_logging" {
   name = "${local.resource_prefix.value}-lambda-logging"
   role = aws_iam_role.iam_for_lambda.id
@@ -58,17 +56,7 @@ resource "aws_lambda_function" "analysis_lambda" {
 
   source_code_hash = filebase64sha256("resources/lambda_function_payload.zip")
 
-  runtime = "nodejs18.x" # nodejs12.x está deprecado en Lambda; aprovechá el fix para actualizarlo
-
-  # Sin variables de entorno con secretos. Si en el futuro el Lambda necesita
-  # un secreto real, resolverlo así:
-  #
-  # data "aws_secretsmanager_secret_version" "example" {
-  #   secret_id = "prod/analysis-lambda/api-key"
-  # }
-  #
-  # Y leerlo desde el código del Lambda en runtime, no como variable de entorno
-  # estática definida en Terraform.
+  runtime = "nodejs18.x" 
 
   tags = {
     git_commit           = "5c6b5d60a8aa63a5d37e60f15185d13a967f0542"

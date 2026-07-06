@@ -40,7 +40,7 @@ resource "aws_iam_role_policy_attachment" "policy_attachment-AmazonEKSServicePol
   role       = aws_iam_role.iam_for_eks.name
 }
 
-# KMS CMK dedicado para encriptar los Secrets de Kubernetes
+
 resource "aws_kms_key" "eks_secrets_key" {
   description         = "CMK for EKS Kubernetes secrets encryption"
   enable_key_rotation = true
@@ -64,8 +64,6 @@ resource "aws_vpc" "eks_vpc" {
   })
 }
 
-# Toma control explícito del Security Group default que AWS crea automáticamente
-# junto con la VPC. Sin ingress/egress declarados, queda completamente cerrado.
 resource "aws_default_security_group" "eks_vpc_default" {
   vpc_id = aws_vpc.eks_vpc.id
 }
@@ -110,7 +108,6 @@ resource "aws_subnet" "eks_subnet2" {
   })
 }
 
-# Security group dedicado, en vez de dejar el default de la VPC
 resource "aws_security_group" "eks_cluster_sg" {
   name        = "${local.resource_prefix.value}-eks-cluster-sg"
   description = "Restrict EKS control plane traffic to VPC CIDR only"
