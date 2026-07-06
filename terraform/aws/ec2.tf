@@ -5,9 +5,6 @@ resource "aws_instance" "web_host" {
   vpc_security_group_ids = [aws_security_group.web-node.id]
   subnet_id               = aws_subnet.web_subnet.id
 
-  # Sin credenciales hardcodeadas. Si la instancia necesita permisos de AWS,
-  # usar un IAM Instance Profile (rol asumido vía metadata), nunca variables
-  # de entorno con access keys estáticas.
   user_data = <<EOF
 #! /bin/bash
 sudo apt-get update
@@ -18,7 +15,7 @@ echo "<h1>Deployed via Terraform</h1>" | sudo tee /var/www/html/index.html
 EOF
 
   metadata_options {
-    http_tokens   = "required" # fuerza IMDSv2, mitiga SSRF hacia el metadata service
+    http_tokens   = "required" 
     http_endpoint = "enabled"
   }
 
@@ -36,7 +33,7 @@ EOF
   })
 }
 
-# IAM Instance Profile en lugar de credenciales estáticas en user_data
+
 data "aws_iam_policy_document" "ec2_assume_role" {
   statement {
     effect  = "Allow"

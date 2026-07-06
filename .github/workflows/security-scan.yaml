@@ -234,13 +234,13 @@ jobs:
           ANGLE=$(awk -v s="$SCORE" 'BEGIN{printf "%.1f", (s/100*180)-90}')
 
           if [ "$SCORE" -ge 75 ]; then
-            RISK_LABEL="CRÍTICO"; RISK_COLOR="#ef4444"
+            RISK_LABEL="CRITICAL"; RISK_COLOR="#ef4444"
           elif [ "$SCORE" -ge 50 ]; then
-            RISK_LABEL="ALTO"; RISK_COLOR="#f97316"
+            RISK_LABEL="HIGH"; RISK_COLOR="#f97316"
           elif [ "$SCORE" -ge 25 ]; then
-            RISK_LABEL="MEDIO"; RISK_COLOR="#eab308"
+            RISK_LABEL="MEDIUM"; RISK_COLOR="#eab308"
           else
-            RISK_LABEL="BAJO"; RISK_COLOR="#22c55e"
+            RISK_LABEL="LOW"; RISK_COLOR="#22c55e"
           fi
 
           cat > site/index.html <<HTMLEOF
@@ -380,7 +380,7 @@ jobs:
           <div class="section section-checkov">
             <div class="section-title-row">
               <span class="tool-pill checkov">CHECKOV</span>
-              <h2>Checkov Findings <span style="color: var(--text-dim); font-weight: 400; font-size: 14px;">· severity classified with custom mapping</span></h2>
+              <h2>Checkov Findings</h2>
             </div>
             <div class="cards">
               <div class="card critical"><h3>Critical</h3><div class="value">$CRITICAL</div></div>
