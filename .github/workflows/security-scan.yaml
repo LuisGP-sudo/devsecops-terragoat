@@ -234,13 +234,13 @@ jobs:
           ANGLE=$(awk -v s="$SCORE" 'BEGIN{printf "%.1f", (s/100*180)-90}')
 
           if [ "$SCORE" -ge 75 ]; then
-            RISK_LABEL="CRITICAL"; RISK_COLOR="#ef4444"
+            RISK_LABEL="CRÍTICO"; RISK_COLOR="#ef4444"
           elif [ "$SCORE" -ge 50 ]; then
-            RISK_LABEL="HIGH"; RISK_COLOR="#f97316"
+            RISK_LABEL="ALTO"; RISK_COLOR="#f97316"
           elif [ "$SCORE" -ge 25 ]; then
-            RISK_LABEL="MEDIUM"; RISK_COLOR="#eab308"
+            RISK_LABEL="MEDIO"; RISK_COLOR="#eab308"
           else
-            RISK_LABEL="LOW"; RISK_COLOR="#22c55e"
+            RISK_LABEL="BAJO"; RISK_COLOR="#22c55e"
           fi
 
           cat > site/index.html <<HTMLEOF
@@ -349,13 +349,10 @@ jobs:
             <h2>Overall Risk Level</h2>
             <div class="gauge-wrap">
               <svg width="300" height="170" viewBox="0 0 300 170">
-                <!-- Precomputed color bands (semicircle, outer radius 130,
-                     inner radius 90, center 150,150). These are static and
-                     do not depend on the data - only the needle moves. -->
-                <path d="M 20.00 150.00 A 130 130 0 0 0 58.08 58.08 L 86.36 86.36 A 90 90 0 0 1 60.00 150.00 Z" fill="var(--low)"/>
-                <path d="M 58.08 58.08 A 130 130 0 0 0 150.00 20.00 L 150.00 60.00 A 90 90 0 0 1 86.36 86.36 Z" fill="var(--medium)"/>
-                <path d="M 150.00 20.00 A 130 130 0 0 0 241.92 58.08 L 213.64 86.36 A 90 90 0 0 1 150.00 60.00 Z" fill="var(--high)"/>
-                <path d="M 241.92 58.08 A 130 130 0 0 0 280.00 150.00 L 240.00 150.00 A 90 90 0 0 1 213.64 86.36 Z" fill="var(--critical)"/>
+                <path d="M 20.00 150.00 A 130 130 0 0 1 58.08 58.08 L 86.36 86.36 A 90 90 0 0 0 60.00 150.00 Z" fill="var(--low)"/>
+                <path d="M 58.08 58.08 A 130 130 0 0 1 150.00 20.00 L 150.00 60.00 A 90 90 0 0 0 86.36 86.36 Z" fill="var(--medium)"/>
+                <path d="M 150.00 20.00 A 130 130 0 0 1 241.92 58.08 L 213.64 86.36 A 90 90 0 0 0 150.00 60.00 Z" fill="var(--high)"/>
+                <path d="M 241.92 58.08 A 130 130 0 0 1 280.00 150.00 L 240.00 150.00 A 90 90 0 0 0 213.64 86.36 Z" fill="var(--critical)"/>
                 <!-- Needle: vertical line from center, rotated by ANGLE.
                      SVG rotate() is clockwise for positive values; ANGLE=-90
                      points left (score 0), ANGLE=0 points up (score 50),
