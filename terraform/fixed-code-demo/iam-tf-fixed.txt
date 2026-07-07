@@ -32,8 +32,7 @@ resource "aws_iam_group_membership" "app_group_membership" {
   group = aws_iam_group.app_group.name
 }
 
-# Policy con permisos acotados: solo lo que la app realmente necesita,
-# sobre recursos específicos (ajustar ARNs reales del proyecto)
+# Policy con permisos acotados
 resource "aws_iam_group_policy" "scoped_policy" {
   name  = "scoped_app_policy"
   group = aws_iam_group.app_group.name
